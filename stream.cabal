@@ -15,6 +15,7 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  -- exposed-modules:     
+  exposed-modules: Data.Process     
   -- other-modules:       
   build-depends:       base ==4.6.*
+                       , semigroups >=0.9.2
