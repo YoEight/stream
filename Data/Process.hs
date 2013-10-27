@@ -1,119 +1,85 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE RankNTypes #-}
 module Data.Process where
 
 import Control.Applicative
 import Control.Monad
 import Data.Semigroup
 import Data.Foldable (Foldable, foldMap)
+import Data.List.NonEmpty hiding (head, tail)
 import Data.Monoid (Monoid (..))
 
-infixr 9 <~
-infixl 9 ~>
-
-data Process m o = Yield o (Process m o)
-                 | forall a. Await (m a) (a -> Process m o) (Process m o) (Process m o)
-                 | Stop
-
-type Process1 a b = Process ((->) a) b
-type Sink m a = Process m (a -> m ())
-
-class Automaton k where
-  auto :: k a b -> Process1 a b
-
-instance Automaton (->) where
-  auto f = repeatedly $ do
-             a <- await1
-             yield (f a)
+newtype Process m o = Process
+    { unProcess ::
+           forall r.
+           (NonEmpty o -> Process m o -> r) ->
+           (forall a. m a -> (a -> Process m o) -> Process m o -> r) ->
+           r ->
+           r }
 
 instance Functor (Process m) where
-  fmap = liftM
+    fmap f (Process k) = Process $ \onYield onAwait onHalt ->
+        k (\xs next -> onYield (fmap f xs) (fmap f next))
+        (\req recv fb -> onAwait req (fmap f . recv) (fmap f fb))
+        onHalt
 
 instance Applicative (Process m) where
-  pure  = return
-  (<*>) = ap
+    pure  = return
+    (<*>) = ap
 
 instance Monad (Process m) where
-  return = yield
-  Stop >>= _               = Stop
-  Yield o n >>= f          = f o <> (n >>= f)
-  Await r recv fb cl >>= f = Await r ((f =<<) . recv) (fb >>= f) (cl >>= f) 
+    return a = Process $ \onYield _ _ -> onYield (nel a) halt
 
-instance Semigroup (Process m o) where
-  Stop <> p               = p
-  Yield o n <> p          = Yield o (n <> p)
-  Await r recv fb cl <> p = Await r ((<> p) . recv) (fb <> p) (cl <> p)
+    Process k >>= f = Process $ \onYield onAwait onHalt ->
+        let yielding (x :| xs) next =
+                let (Process action) = append (f x) (rest >>= f)
+                    rest =
+                        if null xs
+                        then next
+                        else yieldAllWith (head xs :| tail xs) next in
+                action onYield onAwait onHalt
+            awaiting req recv fb =
+                let (Process action) =
+                        awaitWith req ((f =<<) . recv) (fb >>= f) in
+                action onYield onAwait onHalt in
+        k yielding awaiting onHalt
 
-instance Monoid (Process m o) where
-  mempty  = Stop
-  mappend = (<>)
+collectProcess :: Monad m => Process m o -> m [o]
+collectProcess (Process k) =
+    let onYield xs next     = liftM ((toList xs) ++) (collectProcess next)
+        onAwait req recv fb = collectProcess . recv =<< req
+        onHalt              = return [] in
+    k onYield onAwait onHalt
 
-await1 :: Process1 a a
-await1 = Await id (\a -> Yield a Stop) Stop Stop
+halt :: Process m o
+halt = Process $ \_ _ h -> h
 
-await :: (a -> Process m o) -> m a -> Process m o
-await k r = Await r k Stop Stop 
+await :: m a -> (a -> Process m o) -> Process m o
+await req k = awaitWith req k halt
+
+awaitWith :: m a -> (a -> Process m o) -> Process m o -> Process m o
+awaitWith req k fb = Process $ \_ onAwait _ -> onAwait req k fb
 
 yield :: o -> Process m o
-yield o = Yield o Stop
+yield o = yieldAllWith (nel o) halt
 
-repeatedly :: Process m o -> Process m o
-repeatedly p = go p
-  where
-    go Stop                 = go p
-    go (Yield o n)          = Yield o (go n)
-    go (Await r recv fb cl) = Await r (go . recv) fb cl
+yieldAll :: NonEmpty o -> Process m o
+yieldAll xs = yieldAllWith xs halt
 
-source :: Foldable f => f o -> Process m o
-source = foldMap yield
+yieldAllWith :: NonEmpty o -> Process m o -> Process m o
+yieldAllWith xs next = Process $ \onYield _ _ -> onYield xs next
 
-(<~) :: Process1 a b -> Process m a -> Process m b
-Stop <~ src                   = kill src 
-Yield o n <~ p                = Yield o (n <~ p)
-Await _ _ fb _ <~ Stop        = fb <~ Stop
-Await k recv _ _ <~ Yield a n = recv (k a) <~ n
-f <~ Await r recv fb cl       = Await r ((f <~) . recv) (f <~ fb) (f <~ cl)
+nel :: a -> NonEmpty a
+nel a = a :| []
 
-(~>) :: Process m a -> Process1 a b -> Process m b
-m ~> ab = ab <~ m
+append :: Process m o -> Process m o -> Process m o
+append (Process kl) p2@(Process kr) = Process $ \onYield onAwait onHalt ->
+    kl (\xs next -> onYield xs (append next p2))
+    (\r k fb -> onAwait r (\a -> append (k a) p2) (append fb p2))
+    (kr onYield onAwait onHalt)
 
-feed :: Process m a -> Sink m a -> Process m ()
-feed Stop t                   = kill t
-feed src Stop                 = kill src
-feed (Yield o n) (Yield f nf) = Await (f o) (const $ feed n nf) Stop Stop
-feed (Await r recv fb cl) t   = Await r ((`feed` t) . recv) (feed fb t) (feed cl t)
-feed src (Await r recv fb cl) = Await r (feed src . recv) (feed src fb) (feed src cl) 
+printIt :: Show a => a -> Process IO ()
+printIt a = await (print a) yield
 
-drain :: Process m o -> Process m v
-drain Stop                = Stop
-drain (Yield _ n)         = drain n
-drain (Await r recv fb c) = Await r (drain . recv) (drain fb) (drain c)
-
-kill :: Process m o -> Process m v
-kill Stop          = Stop
-kill (Yield _ t)   = kill t
-kill (Await _ _ _ c) = drain c 
-
-run :: Monad m => Process m a -> m [a]
-run Stop               = return []
-run (Yield o n)        = liftM (o:) (run n)
-run (Await r recv _ _) = (run . recv) =<< r
-
-run_ :: Monad m => Process m a -> m ()
-run_ = liftM (const ()) . run
-
-printer :: Show a => Sink IO a
-printer = repeatedly $ await yield (return print)
-
-resPrinter :: Show a => Sink IO a -- simulates the need of a resource
-resPrinter = resource (const printer) opening release
-  where
-    opening = print "Opening"
-    release = print "Release" 
-
-resource :: (r -> Process m o) -> m r -> m () -> Process m o
-resource k ack cl = Await ack ((<> cleaning) . k) cleaning cleaning 
-  where
-    cleaning = await (const Stop) cl
-
-test :: Process IO ()
-test = feed (source [1..10] ~> auto (+1)) resPrinter
+test :: Show a => [a] -> Process IO ()
+test = mapM_ printIt
