@@ -1,4 +1,5 @@
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs      #-}
+{-# LANGUAGE RankNTypes #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module : Data.Process.Type
@@ -59,3 +60,11 @@ run m =
         Stop         -> return ()
         Yield _ n    -> run n
         Await rq c _ -> run . c =<< rq
+
+fit :: (forall a. k a -> m a) -> Process k o -> Process m o
+fit f p =
+    Process $
+    case unProcess p of
+        Stop          -> Stop
+        Yield o n     -> Yield o (fit f n)
+        Await rq c fb -> Await (f rq) (fit f . c) (fit f fb)

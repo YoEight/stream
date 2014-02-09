@@ -15,6 +15,7 @@ import GHC.Exts
 
 import Data.Process.Plan
 import Data.Process.Type
+import Data.Process.Tee
 
 infixr 9 <~
 infixl 9 ~>
@@ -28,22 +29,13 @@ await1 :: Plan (Is a) o a
 await1 = await Is
 
 (<~) :: Process1 a b -> Process m a -> Process m b
-p1 <~ p2 =
-    Process $
-    case unProcess p1 of
-        Stop      -> Stop
-        Yield b n -> Yield b (n <~ p2)
-        Await Is k fb ->
-            case unProcess p2 of
-                Stop           -> unProcess (fb <~ stopped)
-                Yield a pn     -> unProcess (k a <~ pn)
-                Await rq c pfb -> Await rq (\r -> p1 <~ c r) (p1 <~ pfb)
+(<~) = pipe
 
 (~>) :: Process m a -> Process1 a b -> Process m b
 p1 ~> p2 = p2 <~ p1
 
 pipe :: Process1 a b -> Process m a -> Process m b
-pipe = (<~)
+pipe p1 p2 = tee (fit (\Is -> L) p1) p2 stopped
 
 auto :: (a -> b) -> Process1 a b
 auto f = repeatedly $ do
