@@ -1,85 +1,31 @@
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE RankNTypes #-}
-module Data.Process where
+-----------------------------------------------------------------------------
+-- |
+-- Module : Data.Process
+-- Copyright : (C) 2014 Yorick Laupa
+-- License : (see the file LICENSE)
+--
+-- Maintainer : Yorick Laupa <yo.eight@gmail.com>
+-- Stability : provisional
+-- Portability : non-portable
+----------------------------------------------------------------------------
+module Data.Process
+       ( module Data.Process.Plan
+       , module Data.Process.Resource
+       , module Data.Process.Tee
+       , module Data.Process.Type
+       ) where
 
-import Control.Applicative
-import Control.Monad
-import Data.Semigroup
-import Data.Foldable (Foldable, foldMap)
-import Data.List.NonEmpty hiding (head, tail)
-import Data.Monoid (Monoid (..))
+import Prelude hiding (zipWith)
 
-newtype Process m o = Process
-    { unProcess ::
-           forall r.
-           (NonEmpty o -> Process m o -> r) ->
-           (forall a. m a -> (a -> Process m o) -> Process m o -> r) ->
-           r ->
-           r }
+import Data.Foldable
 
-instance Functor (Process m) where
-    fmap f (Process k) = Process $ \onYield onAwait onHalt ->
-        k (\xs next -> onYield (fmap f xs) (fmap f next))
-        (\req recv fb -> onAwait req (fmap f . recv) (fmap f fb))
-        onHalt
+import Data.Process.Plan
+import Data.Process.Resource
+import Data.Process.Tee
+import Data.Process.Type
 
-instance Applicative (Process m) where
-    pure  = return
-    (<*>) = ap
+through :: Process m a -> Channel a m b -> Process m b
+through p1 p2 = eval $ tee (zipWith (\a f -> f a)) p1 p2
 
-instance Monad (Process m) where
-    return a = Process $ \onYield _ _ -> onYield (nel a) halt
-
-    Process k >>= f = Process $ \onYield onAwait onHalt ->
-        let yielding (x :| xs) next =
-                let (Process action) = append (f x) (rest >>= f)
-                    rest =
-                        if null xs
-                        then next
-                        else yieldAllWith (head xs :| tail xs) next in
-                action onYield onAwait onHalt
-            awaiting req recv fb =
-                let (Process action) =
-                        awaitWith req ((f =<<) . recv) (fb >>= f) in
-                action onYield onAwait onHalt in
-        k yielding awaiting onHalt
-
-collectProcess :: Monad m => Process m o -> m [o]
-collectProcess (Process k) =
-    let onYield xs next     = liftM ((toList xs) ++) (collectProcess next)
-        onAwait req recv fb = collectProcess . recv =<< req
-        onHalt              = return [] in
-    k onYield onAwait onHalt
-
-halt :: Process m o
-halt = Process $ \_ _ h -> h
-
-await :: m a -> (a -> Process m o) -> Process m o
-await req k = awaitWith req k halt
-
-awaitWith :: m a -> (a -> Process m o) -> Process m o -> Process m o
-awaitWith req k fb = Process $ \_ onAwait _ -> onAwait req k fb
-
-yield :: o -> Process m o
-yield o = yieldAllWith (nel o) halt
-
-yieldAll :: NonEmpty o -> Process m o
-yieldAll xs = yieldAllWith xs halt
-
-yieldAllWith :: NonEmpty o -> Process m o -> Process m o
-yieldAllWith xs next = Process $ \onYield _ _ -> onYield xs next
-
-nel :: a -> NonEmpty a
-nel a = a :| []
-
-append :: Process m o -> Process m o -> Process m o
-append (Process kl) p2@(Process kr) = Process $ \onYield onAwait onHalt ->
-    kl (\xs next -> onYield xs (append next p2))
-    (\r k fb -> onAwait r (\a -> append (k a) p2) (append fb p2))
-    (kr onYield onAwait onHalt)
-
-printIt :: Show a => a -> Process IO ()
-printIt a = await (print a) yield
-
-test :: Show a => [a] -> Process IO ()
-test = mapM_ printIt
+source :: Foldable f => f a -> Process m a
+source = process . traverse_ yield
