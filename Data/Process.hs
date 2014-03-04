@@ -13,10 +13,13 @@ module Data.Process
        , module Data.Process.Resource
        , module Data.Process.Tee
        , module Data.Process.Type
+       , collectProcess
+       , runProcess
+       , through
+       , source
        ) where
 
-import Prelude hiding (zipWith)
-
+import Control.Monad (liftM)
 import Data.Foldable
 
 import Data.Process.Plan
@@ -29,3 +32,13 @@ through p1 p2 = eval $ tee (zipWith (\a f -> f a)) p1 p2
 
 source :: Foldable f => f a -> Process m a
 source = process . traverse_ yield
+
+runProcess :: Monad m => Process m o -> m ()
+runProcess = liftM (const ()) . collectProcess
+
+collectProcess :: Monad m => Process m o -> m [o]
+collectProcess (Process m) =
+    case m of
+        Stop         -> return []
+        Yield o n    -> liftM (o:) (collectProcess n)
+        Await rq k _ -> collectProcess . k =<< rq
