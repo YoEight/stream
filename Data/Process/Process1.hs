@@ -11,8 +11,6 @@
 ----------------------------------------------------------------------------
 module Data.Process.Process1 where
 
-import GHC.Exts
-
 import Data.Process.Plan
 import Data.Process.Type
 import Data.Process.Tee

@@ -19,6 +19,8 @@ module Data.Process
        , source
        ) where
 
+import Prelude hiding (zipWith)
+
 import Control.Monad (liftM)
 import Data.Foldable
 
@@ -39,6 +41,6 @@ runProcess = liftM (const ()) . collectProcess
 collectProcess :: Monad m => Process m o -> m [o]
 collectProcess (Process m) =
     case m of
-        Stop         -> return []
-        Yield o n    -> liftM (o:) (collectProcess n)
-        Await rq k _ -> collectProcess . k =<< rq
+        Stop e         -> return [] -- handle exception
+        Yield o n      -> liftM (o:) (collectProcess n)
+        Await rq k _ _ -> collectProcess . k =<< rq

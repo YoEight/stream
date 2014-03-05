@@ -20,8 +20,10 @@ library
                  Data.Process.Tee
                  Data.Process.Type
                  Data.Process.Wye
+                 Example
 
   build-depends:         base       ==4.6.*
                        , semigroups >=0.9.2
                        , exceptions >=0.3.2
                        , containers == 0.5.*
+                       , bytestring

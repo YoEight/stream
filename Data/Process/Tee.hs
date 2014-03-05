@@ -1,4 +1,5 @@
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs            #-}
+{-# LANGUAGE ScopedTypeVariables, RankNTypes #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module : Data.Process.Tee
@@ -33,20 +34,19 @@ zipWith f = repeatedly $ do
     yield (f a b)
 
 tee :: Tee a b c -> Process m a -> Process m b -> Process m c
-tee p1 p2 p3 =
-    Process $
-    case unProcess p1 of
-        Stop      -> Stop
-        Yield c n -> Yield c (tee n p2 p3)
-        Await L k fb ->
-            case unProcess p2 of
-                Stop            -> unProcess (tee fb stopped p3)
-                Yield a p2n     -> unProcess (tee (k a) p2n p3)
-                Await rq ca pfa -> Await rq (\r -> tee p1 (ca r) p3)
-                                   (tee p1 pfa p3)
-        Await R k fb ->
-            case unProcess p3 of
-                Stop            -> unProcess (tee fb p2 stopped)
-                Yield b p3n     -> unProcess (tee (k b) p2 p3n)
-                Await rq cb pfb -> Await rq (\r -> tee p1 p2 (cb r))
-                                   (tee p1 p2 pfb)
+tee p1 p2 p3 = Process $
+      case unProcess p1 of
+          Stop e          -> Stop e -- handle cleaning
+          Yield c n       -> Yield c (tee n p2 p3)
+          Await L k fb cl ->
+              case unProcess p2 of
+                  Stop e              -> unProcess (tee fb (stoppedMaybe e) p3)
+                  Yield a n2          -> unProcess (tee (k a) n2 p3)
+                  Await rq k2 fb2 cl2 -> Await rq (\r -> tee p1 (k2 r) p3)
+                                         (tee p1 fb2 p3) (tee p1 cl2 p3)
+          Await R k fb cl ->
+              case unProcess p3 of
+                  Stop e              -> unProcess (tee fb p2 (stoppedMaybe e))
+                  Yield b n3          -> unProcess (tee (k b) p2 n3)
+                  Await rq k3 fb3 cl3 -> Await rq (\r -> tee p1 p2 (k3 r))
+                                         (tee p1 p2 fb3) (tee p1 p2 cl3)
