@@ -1,4 +1,3 @@
-{-# LANGUAGE RankNTypes #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module : Data.Process.Resource
@@ -10,6 +9,10 @@
 -- Portability : non-portable
 ----------------------------------------------------------------------------
 module Data.Process.Resource where
+
+import System.IO
+
+import qualified Data.ByteString as BS
 
 import Data.Process.Type
 
@@ -26,3 +29,19 @@ resource ack rel k =
         let inner Nothing  = onExit
             inner (Just o) = (yielding o) `append` (loop step onExit) in
         awaitingWith step inner onExit onExit
+
+sinkFile :: FilePath -> Sink IO BS.ByteString
+sinkFile path = resource ack hClose step
+  where
+    ack = openFile path WriteMode
+
+    step h = return $ Just $ BS.hPut h
+
+sourceFile :: FilePath -> Process IO BS.ByteString
+sourceFile path = resource ack hClose step
+  where
+    ack = openFile path ReadMode
+
+    step h = do
+        eof <- hIsEOF h
+        if eof then return Nothing else fmap Just (BS.hGet h 8192)
