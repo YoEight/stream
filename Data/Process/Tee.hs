@@ -36,7 +36,9 @@ zipWith f = repeatedly $ do
 tee :: Tee a b c -> Process m a -> Process m b -> Process m c
 tee p1 p2 p3 = Process $
       case unProcess p1 of
-          Stop e          -> Stop e -- handle cleaning
+          Stop e          -> unProcess
+                             (kill p2 `onComplete`
+                             (kill p3 `onComplete` stoppedMaybe e))
           Yield c n       -> Yield c (tee n p2 p3)
           Await L k fb cl ->
               case unProcess p2 of

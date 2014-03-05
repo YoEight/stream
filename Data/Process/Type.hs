@@ -1,5 +1,6 @@
-{-# LANGUAGE GADTs      #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE GADTs              #-}
+{-# LANGUAGE RankNTypes         #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module : Data.Process.Type
@@ -13,8 +14,14 @@
 module Data.Process.Type where
 
 import Control.Exception
+import Data.Typeable
 
 import Data.Process.Plan
+
+data CauseBy = CauseBy !SomeException !SomeException
+               deriving (Show, Typeable)
+
+instance Exception CauseBy
 
 data Step m o r where
     Yield :: o -> r -> Step m o r
@@ -91,3 +98,42 @@ fit f p =
         Stop e           -> Stop e
         Yield o n        -> Yield o (fit f n)
         Await rq c fb cl -> Await (f rq) (fit f . c) (fit f fb) (fit f cl)
+
+causedBy :: Process m o -> Maybe SomeException -> Process m o
+causedBy p Nothing = p
+causedBy p (Just e) = loop e p
+  where
+    loop e cur =
+        Process $
+        case unProcess cur of
+            Yield o n        -> Yield o (loop e n)
+            Await rq k fb cl -> Await rq (loop e . k) (loop e fb) (loop e cl)
+            Stop o_m         -> Stop $ Just $
+                                case o_m of
+                                    Nothing -> SomeException e
+                                    Just e2 -> SomeException $ CauseBy e2 e
+
+onComplete :: Process m o -> Process m o -> Process m o
+onComplete p1 p2 =
+    Process $
+    case unProcess p1 of
+        r@(Stop e)       -> maybe r (const $ unProcess $ causedBy p2 e) e
+        Yield o n        -> Yield o (n `onComplete` p2)
+        Await rq k fb cl -> Await rq ((flip onComplete $ p2) . k)
+                            (fb `onComplete` p2) (cl `onComplete` p2)
+
+drain :: Process m o -> Process m a
+drain p =
+    Process $
+    case unProcess p of
+        Stop e           -> Stop e
+        Yield _ n        -> unProcess $ drain n
+        Await rq k fb cl -> Await rq (drain . k) (drain fb) (drain cl)
+
+kill :: Process m o -> Process m a
+kill p =
+    Process $
+    case unProcess p of
+        Stop e         -> Stop e
+        Yield _ n      -> unProcess $ kill n
+        Await _ _ _ cl -> unProcess $ drain cl
