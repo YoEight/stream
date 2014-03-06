@@ -51,6 +51,14 @@ process (Plan k) =
     (\rq c fb cl -> Await rq (Process . c) (Process fb) (Process cl))
     (\e -> Stop e)
 
+before :: Process m o -> Plan m o u -> Process m o
+before (Process p) (Plan k) =
+    Process $ k
+    (const p)
+    (\o n -> Yield o (Process n))
+    (\rq c fb cl -> Await rq (Process . c) (Process fb) (Process cl))
+    (\e -> Stop e)
+
 append :: Process m o -> Process m o -> Process m o
 append p1 p2@(Process k2) = Process $
     case unProcess p1 of

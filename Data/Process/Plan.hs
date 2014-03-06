@@ -32,6 +32,15 @@ instance Applicative (Plan f o) where
     pure  = return
     (<*>) = ap
 
+instance Alternative (Plan f o) where
+    empty = stop
+    Plan k1 <|> Plan k2 =
+        Plan $ \kd ky ka kr ->
+            let onAwait rq c _ _ =
+                    let other = (k2 kd ky ka kr) in
+                    ka rq c other other in
+            k1 kd ky onAwait kr
+
 instance Monad (Plan f o) where
     return a = Plan $ \kd _ _ _ -> kd a
 
@@ -52,3 +61,10 @@ stop = Plan $ \_ _ _ kr -> kr Nothing
 
 failed :: SomeException -> Plan f o a
 failed e = Plan $ \_ _ _ kr -> kr $ Just e
+
+nextTo :: Plan f o u -> Plan f o u -> Plan f o u
+nextTo (Plan k1) (Plan k2) =
+    Plan $ \kd ky ka kr ->
+        let onError Nothing = k2 kd ky ka kr
+            onError e       = kr e in
+        k1 kd ky ka onError

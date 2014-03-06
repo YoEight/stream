@@ -10,6 +10,7 @@
 ----------------------------------------------------------------------------
 module Data.Process
        ( module Data.Process.Plan
+       , module Data.Process.Process1
        , module Data.Process.Resource
        , module Data.Process.Tee
        , module Data.Process.Type
@@ -26,6 +27,7 @@ import Data.Foldable
 
 import Control.Monad.Catch
 import Data.Process.Plan
+import Data.Process.Process1
 import Data.Process.Resource
 import Data.Process.Tee
 import Data.Process.Type
