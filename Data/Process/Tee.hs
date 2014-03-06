@@ -1,5 +1,4 @@
-{-# LANGUAGE GADTs            #-}
-{-# LANGUAGE ScopedTypeVariables, RankNTypes #-}
+{-# LANGUAGE GADTs #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module : Data.Process.Tee
