@@ -13,6 +13,8 @@ module Data.Process.Resource where
 import System.IO
 
 import qualified Data.ByteString as BS
+import           Data.Text (Text)
+import qualified Data.Text.IO    as T
 
 import Data.Process.Type
 
@@ -45,3 +47,12 @@ sourceFile path = resource ack hClose step
     step h = do
         eof <- hIsEOF h
         if eof then return Nothing else fmap Just (BS.hGet h 8192)
+
+lines :: FilePath -> Process IO Text
+lines path = resource ack hClose step
+  where
+    ack = openFile path ReadMode
+
+    step h = do
+        eof <- hIsEOF h
+        if eof then return Nothing else fmap Just (T.hGetLine h)
