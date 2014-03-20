@@ -41,7 +41,9 @@ repeatedly (Plan k) = r
         (const $ unProcess r)
         (\o n -> Yield o (Process n))
         (\rq c fb cl -> Await rq (Process . c) (Process fb) (Process cl))
-        (\e -> Stop e)
+        onError
+    onError Nothing = unProcess r
+    onError e       = Stop e
 
 process :: Plan m o u -> Process m o
 process (Plan k) =
