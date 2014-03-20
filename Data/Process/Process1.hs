@@ -111,7 +111,7 @@ foldMap1 :: Semigroup b => (a -> b) -> Process1 a b
 foldMap1 k = auto k ~> fold1
 
 intersperse :: a -> Process1 a a
-intersperse sep = repeatedly $ do
-    a <- await1
-    yield a
-    yield sep
+intersperse sep = go
+  where
+    emit = process (await1 >>= yield)
+    go   = emit `append` yielding sep `append` go
